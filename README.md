@@ -9,6 +9,7 @@ An Arduino sketch for **M5StickC Plus2** that:
 
 > The private settings live in `config.h` which should **NOT** be committed. In this repo, we ship **`config.example.h`** — copy it to `config.h` and edit for your environment.
 
+![IMG_7642](https://github.com/user-attachments/assets/6113c1cb-4931-4ade-b269-52d2dd62e718)
 ---
 
 ## Features
@@ -30,6 +31,7 @@ An Arduino sketch for **M5StickC Plus2** that:
 **Wiring** (Grove on StickC Plus2):
 - SDA = **G32**, SCL = **G33** (handled in code with `Wire.begin(32, 33)`)
 
+![IMG_7641](https://github.com/user-attachments/assets/74741938-e0b7-4930-88a3-ac42fef142fe)
 ---
 
 ## Libraries
