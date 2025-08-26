@@ -9,6 +9,7 @@
 
 > 機微情報は **`config.h`** に記述します（**Git 管理対象外**）。リポジトリには **`config.example.h`** を同梱しますので、**`config.h` にコピーしてから編集**してください。
 
+![IMG_7642](https://github.com/user-attachments/assets/22282b3d-a9fc-4c1a-8e17-125ba6dedae2)
 ---
 
 ## 特長
@@ -30,6 +31,7 @@
 **配線**（StickC Plus2 の Grove）  
 SDA = **G32**、SCL = **G33**（コード内で `Wire.begin(32, 33)` を使用）
 
+![IMG_7641](https://github.com/user-attachments/assets/447d5299-f0c0-49b3-81fc-6e6596c49433)
 ---
 
 ## 使用ライブラリ
