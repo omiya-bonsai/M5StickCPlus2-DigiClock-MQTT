@@ -7,6 +7,14 @@
 - **Digi‑Clock Unit**（4桁 7セグ）に NTP 同期した `HH:MM` を表示（分が変わった時のみ更新）
 - **重力を利用した 180° 自動回転**（メインボタンが右/左のどちら向きでも表示が正立）
 
+さらに **24/7 運用に耐える堅牢化** を実施：
+- Wi‑Fi / MQTT の自動再接続（指数バックオフ）
+- MQTT の LWT（異常切断時の最終意思）と KeepAlive / タイムアウト / バッファ調整
+- NTP の強制再同期（最長間隔の上限を設けドリフト防止）
+- ESP32 タスク WDT（ハング検出と復帰）
+- OTA（ArduinoOTA）対応
+- 右上の軽量ステータス表示（Wi‑Fi/MQTT/空きヒープ）
+
 > 機微情報は **`config.h`** に記述します（**Git 管理対象外**）。リポジトリには **`config.example.h`** を同梱しますので、**`config.h` にコピーしてから編集**してください。
 
 ![IMG_7642](https://github.com/user-attachments/assets/22282b3d-a9fc-4c1a-8e17-125ba6dedae2)
@@ -19,6 +27,7 @@
 - **Digi‑Clock** は分が変化した時のみ更新してチラつきを抑制
 - **NTP 同期**：`pool.ntp.org`、JST（+9h）を既定（変更可）
 - **重力ベースの自動回転**：ローパス、傾きしきい値、ヒステリシスを `config.h` で調整可能
+- **24/7 向け強化**：バックオフ再接続、LWT、WDT、OTA、ステータスオーバーレイ
 
 ---
 
@@ -62,11 +71,24 @@ const char* MQTT_BROKER_ADDRESS   = "192.168.1.100";
 const int   MQTT_BROKER_PORT      = 1883;
 const char* MQTT_TOPIC_NAME       = "sensor_data";
 const char* MQTT_CLIENT_ID_PREFIX = "M5StickCPlus2-";
+const bool  MQTT_USE_AUTH         = false;   // 認証が必要なら true
+const char* MQTT_USERNAME         = "";
+const char* MQTT_PASSWORD         = "";
+// LWT（異常切断時の最終意思）
+const char* MQTT_LWT_TOPIC        = "device/m5stickcplus2/status";
+const char* MQTT_LWT_MESSAGE      = "offline";
+const int   MQTT_LWT_QOS          = 1;
+const bool  MQTT_LWT_RETAIN       = true;
+// PubSubClient 調整
+const uint16_t MQTT_KEEPALIVE_SECONDS      = 30;
+const uint16_t MQTT_SOCKET_TIMEOUT_SECONDS = 10;
+const size_t   MQTT_BUFFER_SIZE            = 1024;
 
 // NTP / 時刻
 const char* TIME_SERVER_ADDRESS = "pool.ntp.org";
 const long  JAPAN_TIME_OFFSET_SECONDS = 32400; // +9時間
-const unsigned long TIME_UPDATE_INTERVAL_MILLISECONDS = 60000;
+const unsigned long TIME_UPDATE_INTERVAL_MILLISECONDS = 60000; // 60秒
+const unsigned long TIME_MAX_FORCE_RESYNC_MILLISECONDS = 3600000; // 最低でも1時間に1回は強制再同期
 
 // 自動回転
 const bool  ENABLE_GRAVITY_AUTO_ROTATE    = true;
@@ -76,6 +98,18 @@ const float ORIENTATION_HYSTERESIS_G      = 0.05f;
 const int   DISPLAY_ROTATION_NORMAL       = 1;
 const int   DISPLAY_ROTATION_FLIPPED      = 3;
 const bool  ORIENTATION_INVERT_X          = false;
+
+// 24/7 バックオフ & ヘルス
+const unsigned long WIFI_RETRY_BACKOFF_INITIAL_MS = 1000;  // 1秒
+const unsigned long WIFI_RETRY_BACKOFF_MAX_MS     = 60000; // 最大60秒
+const unsigned long MQTT_RETRY_BACKOFF_INITIAL_MS = 1000;
+const unsigned long MQTT_RETRY_BACKOFF_MAX_MS     = 60000;
+const bool   ENABLE_TASK_WATCHDOG  = true;
+const int    WDT_TIMEOUT_SECONDS   = 10;
+const bool   ENABLE_STATUS_OVERLAY = true;
+// UI のタイミング
+const unsigned long CONNECTION_SUCCESS_DISPLAY_TIME = 1500;   // 成功/通知画面の表示時間 (ms)
+const unsigned long INTERACTIVE_DISPLAY_INTERVAL_MILLISECONDS = 3000; // CO2/THI の交互表示間隔 (ms)
 ```
 
 ---
@@ -103,9 +137,23 @@ const bool  ORIENTATION_INVERT_X          = false;
 ```
 すべてのキーは任意です。受信した項目のみ表示し、**CO₂** と **THI** を数秒ごとに交互表示します。
 
+## UI タイミング早見表
+
+- 成功/通知画面の表示時間: `CONNECTION_SUCCESS_DISPLAY_TIME`（既定: 1500 ms）
+- CO₂/THI の交互表示間隔: `INTERACTIVE_DISPLAY_INTERVAL_MILLISECONDS`（既定: 3000 ms）
+- Digi‑Clock は分が変わったときのみ更新（明示的な待機なし）
+- 自動回転のポーリング間隔: `ORIENTATION_CHECK_INTERVAL_MS`（既定: 200 ms）
+
+`config.h` でこれらを調整すると、表示のテンポを用途に合わせて変更できます。
+
 ---
 
 ## トラブルシュート
+
+- **OTA が Arduino IDE に出てこない**
+  - PC とデバイスが同じ LAN で mDNS が有効か確認
+  - スケッチは起動時に `ArduinoOTA.begin()` を呼びます。ネットワーク到達性を確認
+  - それでも見つからない場合は IDE から IP を直接指定するか、FW 設定を見直し
 
 - **MQTT Connection Failed, rc = -2**  
   PubSubClient の `state()` が **-2** の場合は **MQTT_CONNECT_FAILED**（トランスポート層の失敗）です。以下をご確認ください：  
@@ -128,6 +176,16 @@ const bool  ORIENTATION_INVERT_X          = false;
 ## リポジトリ運用
 
 - **`config.example.h`** をコミットし、**`config.h`** は `.gitignore` に追加してください（秘密情報保護）。
+
+## 24/7 運用メモ
+
+- 再接続は指数バックオフで行い、AP やブローカへの負荷を避けます。
+- タスク WDT（10秒）を有効化しています。長い `delay()` の追加は避けてください。
+- NTP の強制再同期を 1 時間に 1 回は行い、時刻ドリフトを抑制します。
+- `config.h` の `ENABLE_PERIODIC_SOFT_RESTART` で定期再起動も有効化できます（任意）。
+
+### 最近の変更
+- 成功画面などの表示時間を 2000 ms → 1500 ms に短縮しました（`CONNECTION_SUCCESS_DISPLAY_TIME`）。
 
 ---
 
